@@ -4,6 +4,7 @@ import {
   chmodSync,
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -139,6 +140,11 @@ describe("applySubstitutions", () => {
       "skills/how/SKILL.md",
       "If the Task tool rejects a slug, use the default and say so.",
       "If the `Agent` tool rejects a slug, use the default and say so.",
+    ],
+    [
+      "skills/how/SKILL.md",
+      "Once all explorers have returned, spawn one Task subagent to synthesize their findings into one explanation:",
+      "Once all explorers have returned, spawn one `Agent` subagent to synthesize their findings into one explanation:",
     ],
     [
       "skills/how/SKILL.md",
@@ -314,6 +320,20 @@ describe("denylistHits", () => {
     expect(denylistHits("policy.md", supported, RULES.denylist)).toEqual([]);
   });
 
+  test("the subagent tool named bare fails the scan, and other Task words pass", () => {
+    for (const sentence of [
+      "Spawn one Task subagent that explores and explains in one pass:",
+      "If a Task tool rejects a slug, use the default.",
+      "a nested spawn has the full Task schema including `environment`",
+      "the role runs on the parent chat model (omit Task `model`).",
+    ]) {
+      expect(denylistHits("skills/x/SKILL.md", sentence, RULES.denylist)).toHaveLength(1);
+    }
+    for (const sentence of ["Use TaskCreate and TaskUpdate.", "## <Task as a verb phrase> (<PR id>)"]) {
+      expect(denylistHits("skills/x/SKILL.md", sentence, RULES.denylist)).toEqual([]);
+    }
+  });
+
   test("flags residual Cursor-isms with file, line, and hint", () => {
     const hits = denylistHits("skills/x/SKILL.md", "line one\nrun control-cli now\n", RULES.denylist);
     expect(hits).toHaveLength(1);
@@ -367,8 +387,12 @@ describe("mergeFile", () => {
 });
 
 describe("changedLines", () => {
-  test("throws git's error instead of counting zero when git cannot read the local file", () => {
-    expect(() => changedLines(Buffer.from("one\n"), join(tree({}), "missing.md"))).toThrow("Could not access");
+  test("counts the lines added and removed between two texts", () => {
+    expect(changedLines(Buffer.from("a\nb\n"), Buffer.from("a\nc\nd\n"))).toBe(3);
+  });
+
+  test("throws instead of counting zero when the texts do not differ", () => {
+    expect(() => changedLines(Buffer.from("a\n"), Buffer.from("a\n"))).toThrow("git diff --no-index failed");
   });
 });
 
@@ -390,7 +414,14 @@ describe("classify", () => {
     [
       "a port edit upstream left alone",
       { old: older("a\n"), new: upstream("a\n"), local: port("a\nport\n") },
-      { kind: "forked", kept: bytes("a\nport\n"), base: bytes("a\n") },
+      { kind: "forked", kept: bytes("a\nport\n"), changed: 1 },
+    ],
+    ["a local symlink under an upstream file", { old: older("a\n"), new: upstream("a\n"), local: { symlink: true } }, { kind: "symlink" }],
+    ["a local symlink at a path upstream deleted", { old: older("a\n"), local: { symlink: true } }, { kind: "symlink" }],
+    [
+      "a binary port copy under a text upstream edit",
+      { old: older("a\n"), new: upstream("b\n"), local: { ...port("a\0"), binary: true } },
+      { kind: "binary-conflict" },
     ],
     ["a port mode change upstream left alone", { old: older("a\n"), new: upstream("a\n"), local: port("a\n", 0o755) }, { kind: "mode-only", kept: bytes("a\n") }],
     [
@@ -441,6 +472,7 @@ describe("classify", () => {
     ],
     ["an upstream deletion the port never edited", { old: older("a\n"), local: port("a\n") }, { kind: "deleted" }],
     ["an upstream deletion of a port edit", { old: older("a\n"), local: port("port\n") }, { kind: "removed-upstream", kept: bytes("port\n") }],
+    ["an upstream deletion of a port mode change", { old: older("a\n"), local: port("a\n", 0o755) }, { kind: "removed-upstream", kept: bytes("a\n") }],
     ["an upstream deletion the port already made", { old: older("a\n") }, null],
   ])("%s", (_, input, outcome) => {
     expect(classify(input)).toEqual(outcome);
@@ -821,6 +853,65 @@ describe("syncComponent", () => {
     expect(existsSync(join(local, "file-link.md"))).toBe(false);
     expect(readFileSync(join(local, "was-file.md"), "utf8")).toBe("body\n");
     expect(readFileSync(join(local, "old-link.md"), "utf8")).toBe("local secret\n");
+  });
+
+  test("a local symlink at an upstream path is reported, never followed or written through", () => {
+    const outside = tree({ "forked.md": "a\nport\n", "same.md": "a\n" });
+    const oldUp = tree({ "linked.md": "a\n", "gone.md": "a\n" });
+    const newUp = tree({ "dangling.md": "upstream\n", "linked.md": "a\n" });
+    const local = tree({});
+    symlinkSync(join(outside, "created.md"), join(local, "dangling.md"));
+    symlinkSync(join(outside, "forked.md"), join(local, "linked.md"));
+    symlinkSync(join(outside, "same.md"), join(local, "gone.md"));
+    symlinkSync(join(outside, "same.md"), join(local, "port-only.md"));
+
+    const report = sync({ oldDir: oldUp, newDir: newUp, localDir: local });
+
+    expect(report.conflicts).toEqual([
+      { rel: "dangling.md", reason: "symlink" },
+      { rel: "linked.md", reason: "symlink" },
+      { rel: "gone.md", reason: "symlink" },
+    ]);
+    expect(report.written).toEqual([]);
+    expect(report.deleted).toEqual([]);
+    expect(report.forked).toEqual([]);
+    expect(report.portOnly).toEqual(["port-only.md"]);
+    expect(existsSync(join(outside, "created.md"))).toBe(false);
+    for (const rel of ["dangling.md", "linked.md", "gone.md"]) expect(lstatSync(join(local, rel)).isSymbolicLink()).toBe(true);
+  });
+
+  test("a local symlink at a directory above upstream paths is reported at the link, and nothing is written through it", () => {
+    const outside = tree({ "dir/x.md": "a\n", "file.md": "f\n" });
+    const oldUp = tree({ "d/x.md": "a\n" });
+    const newUp = tree({ "d/x.md": "b\n", "d/new.md": "n\n", "f/z.md": "z\n" });
+    const local = tree({});
+    symlinkSync(join(outside, "dir"), join(local, "d"));
+    symlinkSync(join(outside, "file.md"), join(local, "f"));
+
+    const report = sync({ oldDir: oldUp, newDir: newUp, localDir: local });
+
+    expect(report.conflicts).toEqual([
+      { rel: "d", reason: "symlink" },
+      { rel: "f", reason: "symlink" },
+    ]);
+    expect(report.written).toEqual([]);
+    expect(report.portOnly).toEqual([]);
+    expect(readdirSync(join(outside, "dir"))).toEqual(["x.md"]);
+    expect(readFileSync(join(outside, "dir/x.md"), "utf8")).toBe("a\n");
+    expect(readFileSync(join(outside, "file.md"), "utf8")).toBe("f\n");
+    for (const rel of ["d", "f"]) expect(lstatSync(join(local, rel)).isSymbolicLink()).toBe(true);
+  });
+
+  test("a binary port copy under an upstream text edit blocks every write", () => {
+    const oldUp = tree({ "doc.md": "a\n", "sibling.md": "old\n" });
+    const newUp = tree({ "doc.md": "b\n", "sibling.md": "new\n" });
+    const local = tree({ "doc.md": "a\0", "sibling.md": "old\n" });
+
+    const report = sync({ oldDir: oldUp, newDir: newUp, localDir: local });
+
+    expect(report.binaryConflicts).toEqual(["doc.md"]);
+    expect(readFileSync(join(local, "doc.md"), "utf8")).toBe("a\0");
+    expect(readFileSync(join(local, "sibling.md"), "utf8")).toBe("old\n");
   });
 
   test("a written file takes upstream's mode, and a mode-only upstream change is written", () => {
