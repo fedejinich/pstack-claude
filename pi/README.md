@@ -20,6 +20,8 @@ pi install ./pi
 
 Pi loads the extension in future sessions, discovers the original skills through its resource-discovery event, and injects the original routing mandate before each user run. It does not launch workers or call a model merely by loading. Full skills are loaded on demand. The normal entry point is `/skill:poteto-mode`; the model can also use `pstack_skill`.
 
+Pi discovers all 54 original skills. Its skill loader does not implement Claude's `user-invocable: false` menu flag, so internal principle helpers can appear in Pi's command discovery. Their content is unchanged and still loads on demand; this adapter does not rewrite frontmatter to imitate Claude's menu.
+
 Routing is **on by default**, with the same criteria as upstream. Small tasks proceed directly. `/pstack off` disables automatic routing for the current session without removing skills. `/pstack on` re-enables it. `/pstack status` reports the current state. A new/resumed session uses persistent configuration again.
 
 For an isolated trial, do not install globally:
