@@ -1,0 +1,17 @@
+{
+  "name": "pstack-pi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "keywords": ["pi-package"],
+  "pi": { "extensions": ["./extension.ts"] },
+  "scripts": {
+    "test": "node --test verification/*.test.mjs",
+    "check": "node check.mjs",
+    "eval": "node verification/eval.mjs"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.87.1 <0.88.0",
+    "typebox": "*"
+  }
+}
