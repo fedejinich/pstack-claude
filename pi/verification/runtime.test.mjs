@@ -180,6 +180,20 @@ test('Claude requires an observed matching main-worker model, not just a request
   }
 });
 
+test('Claude synthetic quota messages preserve the API failure, not a model-substitution error', async t => {
+  const dir = fixture(t);
+  const events = [
+    { type: 'assistant', is_api_error_message: true, message: { model: '<synthetic>' } },
+    { type: 'result', is_error: true, result: "You've hit your weekly limit", modelUsage: {} },
+  ];
+  const p = pool(t, dir, events.map(e => `console.log(${JSON.stringify(JSON.stringify(e))})`).join(';'));
+  const job = p.start({ runtime: 'claude', model: 'sonnet', label: 'claude:sonnet' }, { cwd: dir, prompt });
+  const result = await p.wait(job.id);
+  assert.equal(result.status, 'failed');
+  assert.match(result.error, /weekly limit/);
+  assert.doesNotMatch(result.error, /changed model/);
+});
+
 test('unknown worker ID is session scoped', t => {
   const p = pool(t, fixture(t));
   assert.throws(() => p.view('some-other-session'), /Unknown worker/);

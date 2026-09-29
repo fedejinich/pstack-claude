@@ -146,7 +146,7 @@ export class Workers {
         if (message.usage) job.usage.push({ provider: message.provider, model: message.model, usage: message.usage });
       }
       if (model.runtime === 'pi' && event.type === 'agent_settled') final = true;
-      if (model.runtime === 'claude' && event.type === 'assistant' && !event.parent_tool_use_id && event.message?.model) observeIdentity(event.message.model);
+      if (model.runtime === 'claude' && event.type === 'assistant' && !event.parent_tool_use_id && !event.is_api_error_message && event.message?.model) observeIdentity(event.message.model);
       if (model.runtime === 'claude' && event.type === 'result') {
         final = true;
         answer = true;

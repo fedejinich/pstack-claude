@@ -6,7 +6,7 @@
 - Clean implementation revision tested: `91c6c61960267967cad0a6aad4f6f67647c0fb79`.
 - Pi 0.87.1; Claude CLI 2.1.284; Node 24.18.0; macOS arm64.
 - Live run: 2026-09-29 03:33:14–03:36:34 UTC, with `adapterDirty: false`.
-- `node pi/check.mjs`: **21 adapter tests and 372 upstream tests passed**;
+- `node pi/check.mjs`: **22 adapter tests and 372 upstream tests passed**;
   generator, pinned-tree integrity, original skills/agents and references passed.
 - TypeScript compilation against the installed Pi SDK passed. Markdown correctness
   lint for `pi/**/*.md` passed.
@@ -84,6 +84,10 @@ rewrite of upstream policy.
   skill-authoring companions, durable multi-day orchestration and Windows
   process-tree behavior are unverified. No unit test substitutes for those flows.
 
-Raw Claude evidence: `pstack-eval-toRTgD/report.json` under the same temporary
-parent. Earlier quota evidence and exploratory runs remain separate from the
-clean-candidate promotion results.
+Raw final Claude evidence: `pstack-eval-rqg1Xq/report.json` under the same temporary
+parent. Its synthetic API-error message initially masked the quota as an identity
+mismatch. A Claude-only event-filter fix and regression test preserve the actual
+quota error without accepting a synthetic model as verified. The final live retry
+reports `blocked`; it does not claim successful Claude execution. This small fix
+postdates the clean six-case Pi run above; Pi execution paths are unchanged.
+Earlier quota evidence and exploratory runs remain separate from promotion results.
