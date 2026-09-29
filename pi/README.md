@@ -5,7 +5,7 @@ This directory adapts the original PStack skills to Pi. All files outside `pi/` 
 ## Requirements
 
 - Pi 0.87.1. The declared compatibility range is intentionally narrow; re-run verification before widening it.
-- Node.js 22+ and Bun for development checks.
+- Node.js 22+ and Bun 1.3.14 for development checks. Docker or Podman can run the complete upstream checks in Linux without modifying upstream tests.
 - Available Pi model credentials for Pi workers.
 - Claude CLI authentication for explicit `claude:<model>` workers. They use Claude's own permission and MCP configuration, not Pi's.
 - Workflow-specific upstream dependencies still apply: GitHub CLI, Bun, Graphite, browser or application drivers, and authoring guidance when required.
@@ -80,7 +80,16 @@ From the repository root:
 node pi/check.mjs
 ```
 
-This checks the upstream boundary and version, skill/agent references, adapter tests, the unchanged upstream generator, and upstream tests. Adapter tests live in `pi/verification/` so upstream's `bun test tests/` filter does not accidentally execute Node-only SDK tests under Bun.
+This checks the upstream boundary and version, skill/agent references, adapter tests, the unchanged upstream generator, root tests, and **all `orch`/`watch-pr` tests, typecheck and formatting**. A failure in any required suite blocks promotion. Adapter tests live in `pi/verification/` so upstream's `bun test tests/` filter does not accidentally execute Node-only SDK tests under Bun.
+
+The upstream 250 ms transport fixture can expire before its child starts on macOS. Do not skip it or weaken its assertion. Use the complete Linux gate on the same candidate instead:
+
+```sh
+node pi/check.mjs --container podman
+# or: node pi/check.mjs --container docker
+```
+
+Start your chosen container engine first; this command does not manage its VM. Adapter/SDK tests still run against the actual local Pi installation. The upstream suite runs as a non-root Linux user using pinned Node/Bun images. The gate archives the actual tracked and non-gitignored candidate files, not a separately fetched upstream checkout. It excludes Git metadata, local evidence and ignored dependencies, streams the archive without mounting credentials or the host filesystem, and records the archive SHA256 and image ID. The image build context is empty. The disposable container is removed after the run; normal local image cache remains.
 
 Tests load the actual installed Pi SDK and TypeScript extension. Set `PI_SDK_PATH` to its `dist/index.js` if the `pi` executable is a wrapper rather than the normal Node installation. No model calls occur in deterministic tests.
 
@@ -115,7 +124,7 @@ node pi/verification/eval.mjs --live --model openai-codex/gpt-6-astra
 
 Review changed tool names, roles, model defaults, hook behavior, agent definitions and referenced scripts. Green Git merges do not imply semantic compatibility. Adjust only `pi/`; any upstream-file patch needs explicit approval. Publish the fork PR with exact evidence, then update the `fede` submodule pin in a separate validated PR. The integrity check compares against the new pin and rejects any drift outside `pi/`.
 
-The unchanged upstream GitHub workflows do not run the Pi suite. Run `node pi/check.mjs` and the live evaluations as the required local promotion gate; attach the evidence summary to the fork PR. Keeping all additions inside `pi/` avoids changing upstream workflows.
+The unchanged upstream GitHub workflows do not run the Pi suite. Run the **complete** `node pi/check.mjs` gate (with `--container podman` or `docker` where needed) and the live evaluations; attach the evidence summary to the fork PR. A smaller passing subset or green CI on a different upstream checkout does not satisfy the candidate gate. Keeping all additions inside `pi/` avoids changing upstream workflows.
 
 ## Disable and roll back
 

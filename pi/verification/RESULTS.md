@@ -6,8 +6,13 @@
 - Clean implementation revision tested: `91c6c61960267967cad0a6aad4f6f67647c0fb79`.
 - Pi 0.87.1; Claude CLI 2.1.284; Node 24.18.0; macOS arm64.
 - Live run: 2026-09-29 03:33:14–03:36:34 UTC, with `adapterDirty: false`.
-- `node pi/check.mjs`: **22 adapter tests and 372 upstream tests passed**;
-  generator, pinned-tree integrity, original skills/agents and references passed.
+- Complete candidate gate: `node pi/check.mjs --container podman` passed **22
+  local Pi adapter tests, 372 upstream root tests and all 154 `orch`/`watch-pr`
+  tests**, plus generator, pinned-tree integrity, references, typecheck and format.
+  The upstream suites ran as a non-root Linux arm64 user on Node 22.19.0 / Bun
+  1.3.14. The archive contained the actual candidate, not a fresh upstream copy.
+  Final committed-candidate logs and archive/image digests are retained with the
+  PR's promotion evidence.
 - TypeScript compilation against the installed Pi SDK passed. Markdown correctness
   lint for `pi/**/*.md` passed.
 
@@ -50,6 +55,26 @@ script changes. Pi's existing delegation mapping covers that translation.
 The fork's `main` remains an unmodified fast-forward mirror of upstream; the
 adapter is published through its own PR.
 
+## Audit correction: complete gate before promotion
+
+The first completion audit correctly rejected promotion: the earlier gate omitted
+`orch`/`watch-pr`, and a known failure in that applicable suite had been treated as
+optional. Initial global activation was premature. The package and its active
+configuration were removed, and both PRs were converted to drafts.
+
+The corrected gate includes every deterministic upstream suite. A pinned,
+non-root Linux container resolves the host-specific deadline fixture without
+changing upstream code. It tests actual candidate bytes, records their archive
+hash and the image ID, and excludes credentials and private evidence. The image
+has Node, Bun, Git and Python, matching the tools the unchanged suites need.
+Initial container setup errors (missing dependencies and macOS archive metadata)
+were corrected in the harness, not in upstream tests. The subsequent complete
+run passed, including the previously failing deadline test. Native macOS failure
+is preserved in the evidence rather than misrepresented as a pass.
+
+Repromotion requires the corrected gate on the published candidate and its live
+Pi evaluations. Final activation and PR state are recorded in the PR comments.
+
 ## Independent review and negative tests
 
 A separate, read-only GPT-6 Sol reviewer examined the actual adapter. Findings
@@ -72,13 +97,16 @@ rewrite of upstream policy.
   transport test also exits nonzero with `blocked`. Do not enable Claude aliases
   in production until `--case claude` passes with that account. The default Pi
   integration can use the three independently validated Codex models instead.
-- Additional upstream script checks: typecheck and Prettier passed; **153/154
-  `orch`/`watch-pr` tests passed locally**. The macOS transport deadline fixture
-  times out before creating its PID file (reproduced with Bun 1.3.11 and 1.3.14).
-  It was not patched or suppressed. The exact upstream pin's
-  [canonical CI passed](https://github.com/michael-denyer/pstack-claude/actions/runs/36516759304).
-  This is outside the Pi adapter's required root-test gate, but remains a local
-  limitation of shipping-workflow verification, not a passing test.
+- The native macOS transport deadline fixture times out before creating its
+  PID file (153/154 passed on Bun 1.3.11 and 1.3.14). **It is required**, not an
+  optional exception: the complete candidate gate now runs it successfully in
+  Linux, with all 154 passing. No test was patched, omitted, retried until lucky,
+  or given a longer timeout. This validates the deterministic shipping scripts,
+  not an actual GitHub shipping workflow.
+- Fork Actions produced no runs after enablement and push. Dispatch returned 422
+  because the untouched upstream workflow lacks `workflow_dispatch`. This is not
+  reported as green CI. The complete local candidate gate supplies the evidence;
+  canonical upstream CI alone would not establish candidate correctness.
 - Native Claude collision smoke tests are unavailable under the same quota.
 - Graphite shipping, live GitHub merge-safety exercises, browser/UI drivers,
   skill-authoring companions, durable multi-day orchestration and Windows
