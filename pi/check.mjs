@@ -1,0 +1,26 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { root, skills, skillPath, agentPrompt } from './runtime.mjs';
+
+const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+const pin = JSON.parse(readFileSync(join(root, 'pi/upstream.json'), 'utf8'));
+if (!/^[a-f0-9]{40}$/.test(pin.commit)) throw Error('Pin must be a full Git SHA');
+git('merge-base', '--is-ancestor', pin.commit, 'HEAD');
+if (git('ls-tree', '--name-only', pin.commit, '--', 'pi').length) throw Error('Upstream now owns pi/; stop and choose a new boundary');
+const diff = git('diff', '--name-only', pin.commit, '--', '.', ':(exclude)pi');
+if (diff) throw Error(`Upstream files changed:\n${diff}`);
+const unexpected = git('ls-files', '--others', '--exclude-standard').split('\n').filter(p => p && !p.startsWith('pi/'));
+if (unexpected.length) throw Error(`Non-Pi additions: ${unexpected.join(', ')}`);
+if (readFileSync(join(root, 'VERSION'), 'utf8').trim() !== pin.version) throw Error('Upstream version does not match pin');
+const hook = JSON.parse(readFileSync(join(root, 'plugins/pstack/hooks/hooks.json'), 'utf8'));
+if (!hook.hooks.SessionStart.some(h => h.matcher === 'startup|resume|clear|compact')) throw Error('Upstream hook lifecycle changed; review Pi mapping');
+const names = readdirSync(skills).filter(name => !name.startsWith('.'));
+for (const name of names) skillPath(name);
+for (const name of ['poteto-agent', 'comment-sicko']) agentPrompt(name);
+git('diff', '--check');
+console.log(`Checking upstream ${pin.version} ${pin.commit}; ${names.length} original skills; additions confined to pi/`);
+execFileSync('node', ['--test', ...readdirSync(join(root, 'pi/verification')).filter(n => n.endsWith('.test.mjs')).map(n => join(root, 'pi/verification', n))], { cwd: root, stdio: 'inherit' });
+execFileSync('bun', ['tools/generate.mjs', '--check'], { cwd: root, stdio: 'inherit' });
+execFileSync('bun', ['test', 'tests/'], { cwd: root, stdio: 'inherit' });
+console.log(`PASS integrity, Pi adapter and upstream checks (${pin.version} ${pin.commit})`);
